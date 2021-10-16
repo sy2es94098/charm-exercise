@@ -1,0 +1,88 @@
+mainmodule particleSimulation {
+
+  include "particle.h";
+  readonly CProxy_Main mainProxy;
+  readonly CProxy_Cell cellProxy;
+  readonly int particlesPerCell;
+  readonly int numCellsPerDim;
+  readonly int iterations;
+  readonly int lbFreq;
+  readonly int reductionFreq;
+  readonly double boxMax;
+  readonly double boxMin;
+  readonly double cellDim;
+  readonly int velocityFactor;
+  readonly vector<int> particleRatio;
+  readonly bool logOutput;
+
+#if LIVEVIZ_RUN
+  readonly double pixelScale;
+#endif
+
+  initnode void registerCalculateTotalAndOutbound(void);
+
+  mainchare Main {
+    entry Main(CkArgMsg* m);
+    entry [reductiontarget] void receiveTotalOutboundReductionData(CkReductionMsg *data);
+    entry [reductiontarget] void done();
+
+#if BONUS_QUESTION
+    entry [reductiontarget] void receiveMinMaxReductionData(CkReductionMsg *data);
+#endif
+  };
+
+  array [2D] Cell {
+    entry Cell(void); // constructor
+
+    entry void updateNeighbor(int iter, std::vector<Particle> incoming, int senderX, int senderY);
+
+    // Main computation
+    entry void run() {
+
+      // NOTE: Do not add new variables in the body of this method
+      // Rather, declared them as data members in the Cell class
+
+      for(iteration=1; iteration<=iterations; iteration++){
+
+          serial{
+            // Reset numOutbound value to 0 for the next iteration
+            numOutbound = 0;
+
+            // Allow the particles to move around
+            updateParticles(iteration);
+          }
+
+          for(numReceived=0; numReceived<8; numReceived++){
+            when receiveUpdate[iteration] (int iter, std::vector<Particle> incoming, int senderX, int senderY) serial {
+              // Update the current cell with the incoming particles
+              updateNeighbor(iter, incoming, senderX, senderY);
+            }
+          }
+
+          serial{
+            if(iteration % reductionFreq == 0 || iteration == iterations) {
+              reduceTotalAndOutbound();
+            }
+          }
+
+          if(iteration % lbFreq == 0 && iteration != iterations){
+            serial{ AtSync(); } when ResumeFromSync() {}
+          }
+      }//end of the iteration loop
+    };
+
+    entry void receiveUpdate(int iter, std::vector<Particle> incoming, int senderX, int senderY);
+    entry void ResumeFromSync();
+    entry void sortAndDump(string subFolderName);
+    entry void reorganizeParticles(string subFolderName);
+    entry void recvParticlesPostSimulation(vector<Particle> inbound);
+
+#if BONUS_QUESTION
+    entry void contributeToReduction();
+#endif
+
+#if LIVEVIZ_RUN
+    entry void mapChareToImage(liveVizRequestMsg *m);
+#endif
+  };
+};
